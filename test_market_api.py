@@ -653,6 +653,18 @@ class APITester:
         response = self.make_request('POST', '/account/bankruptcy')
         self.print_response(response)
 
+    def get_toplist(self):
+        """Получить список самых богатых игроков"""
+        print("\n16. Получить список самых богатых игроков")
+        print("-" * 30)
+
+        page = input("Номер страницы (по умолчанию 1): ").strip()
+        page = int(page) if page.isdigit() else 1
+        
+        data = {'page': page}
+        response = self.make_request('GET', '/players/rating', data)
+        self.print_response(response)
+
     def show_status(self):
         """Показывает текущий статус"""
         print("\nТекущий статус:")
@@ -808,6 +820,7 @@ class APITester:
             print("13. Мои подписки")
             print("14. Выйти из системы (Разлогиниться)")
             print("15. Объявить банкротство")
+            print("16. Самые богатые игроки")
             print(" 0. Выход из программы")
             print("=" * 60)
             
@@ -860,6 +873,9 @@ class APITester:
                 self.wait_for_input()
             elif choice == '15':
                 self.declare_bankruptcy()
+                self.wait_for_input()
+            elif choice == '16':
+                self.get_toplist()
                 self.wait_for_input()
             else:
                 print("\nНеверный выбор. Попробуйте снова.")
