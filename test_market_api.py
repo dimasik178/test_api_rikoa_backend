@@ -660,8 +660,10 @@ class APITester:
 
         page = input("Номер страницы (по умолчанию 1): ").strip()
         page = int(page) if page.isdigit() else 1
+        per_page = input("Количество игроков на одной странице (по умолчанию 20): ").strip()
+        per_page = int(per_page) if per_page.isdigit() else 20
         
-        data = {'page': page}
+        data = {'page': page, "per_page": per_page}
         response = self.make_request('GET', '/players/rating', data)
         self.print_response(response)
 
