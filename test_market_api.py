@@ -4,6 +4,7 @@
 import requests
 import json
 import os
+import subprocess
 
 # Конфигурация
 BASE_URL = "http://127.0.0.1:5000"
@@ -14,7 +15,7 @@ class APITester:
         self.session = requests.Session()
         self.session.headers.update({
             'Content-Type': 'application/json',
-            'User-Agent': 'APITester/2.1'
+            'User-Agent': 'APITester/4.0'
         })
         self.current_token = None
         self.current_user = None
@@ -74,55 +75,10 @@ class APITester:
             return
         
         # Получаем метод запроса
-        method = response.request.method if hasattr(response, 'request') and response.request else 'GET'
+        method = getattr(response, '_method', 'GET')
         
         # Получаем отправленные данные
-        request_data = None
-        if hasattr(response, 'request') and response.request:
-            if response.request.body:
-                try:
-                    # Для JSON запросов
-                    if 'application/json' in response.request.headers.get('Content-Type', ''):
-                        request_data = json.loads(response.request.body)
-                    # Для form-data (multipart)
-                    elif 'multipart/form-data' in response.request.headers.get('Content-Type', ''):
-                        # Извлекаем только текстовые поля из form-data
-                        body_text = response.request.body.decode('utf-8', errors='ignore')
-                        # Упрощенная обработка - показываем структуру без бинарных данных
-                        if 'Content-Disposition: form-data' in body_text:
-                            lines = body_text.split('\r\n')
-                            text_fields = []
-                            for line in lines:
-                                if 'name="' in line and 'filename' not in line:
-                                    # Извлекаем имя поля
-                                    name_start = line.find('name="') + 6
-                                    name_end = line.find('"', name_start)
-                                    if name_end > name_start:
-                                        field_name = line[name_start:name_end]
-                                        # Ищем значение (обычно через 2 строки)
-                                        try:
-                                            line_index = lines.index(line)
-                                            if line_index + 4 < len(lines):
-                                                field_value = lines[line_index + 4]
-                                                text_fields.append(f"{field_name}: {field_value}")
-                                        except:
-                                            pass
-                            if text_fields:
-                                request_data = "Form-data: " + ", ".join(text_fields)
-                    # Для URL encoded
-                    elif 'application/x-www-form-urlencoded' in response.request.headers.get('Content-Type', ''):
-                        import urllib.parse
-                        request_data = urllib.parse.parse_qs(response.request.body.decode('utf-8'))
-                except:
-                    # Если не удалось распарсить, показываем сырые данные (первые 500 байт)
-                    try:
-                        body_preview = str(response.request.body)[:500]
-                        if len(body_preview) > 100:
-                            request_data = f"Raw body (truncated): {body_preview[:100]}..."
-                        else:
-                            request_data = f"Raw body: {body_preview}"
-                    except:
-                        request_data = "Binary data or unreadable format"
+        request_data = getattr(response, '_sent_data', None)
         
         print(f"\n{'='*60}")
         print(f"Статус: {response.status_code}")
@@ -136,7 +92,7 @@ class APITester:
             else:
                 print(request_data)
         
-        if response.status_code != 200:
+        if response.status_code != 200 and response.status_code != 201:
             print(f"Ошибка HTTP: {response.reason}")
         
         # Получаем и декодируем ответ
@@ -155,7 +111,7 @@ class APITester:
         if self.debug:
             print(f"\n[DEBUG] Заголовки ответа:")
             for header, value in response.headers.items():
-                if header.lower() not in ['date', 'server']:  # Пропускаем стандартные заголовки
+                if header.lower() not in ['date', 'server']:
                     print(f"  {header}: {value}")
             
             if hasattr(response, 'request') and response.request:
@@ -175,6 +131,72 @@ class APITester:
         """Ожидает ввода пользователя"""
         input(f"\n{message}")
     
+    def make_request(self, method, endpoint, data=None, headers=None, files=None, params=None):
+        """Выполняет HTTP запрос с обработкой ошибок"""
+        url = f"{API_URL}{endpoint}"
+        
+        # Добавляем токен авторизации, если есть
+        request_headers = {}
+        if headers:
+            request_headers.update(headers)
+        
+        if self.current_token and 'Authorization' not in request_headers:
+            request_headers['Authorization'] = f'Bearer {self.current_token}'
+            if self.debug:
+                print(f"[DEBUG] Adding Authorization header with token: {self.current_token[:20]}...")
+        
+        if self.debug:
+            print(f"[DEBUG] Making {method} request to {url}")
+            print(f"[DEBUG] Headers: {request_headers}")
+            if data and not files:
+                print(f"[DEBUG] Data to send: {data}")
+            if params:
+                print(f"[DEBUG] Params: {params}")
+        
+        try:
+            if method.upper() == 'GET':
+                response = self.session.get(url, params=params or data, headers=request_headers)
+                response._sent_data = params or data
+                response._method = 'GET'
+                
+            elif method.upper() == 'POST':
+                if files:
+                    response = self.session.post(url, data=data, files=files, headers=request_headers)
+                    response._sent_data = data
+                    response._method = 'POST'
+                else:
+                    response = self.session.post(url, json=data, headers=request_headers)
+                    response._sent_data = data
+                    response._method = 'POST'
+                    
+            elif method.upper() == 'PUT':
+                response = self.session.put(url, json=data, headers=request_headers)
+                response._sent_data = data
+                response._method = 'PUT'
+                
+            elif method.upper() == 'DELETE':
+                response = self.session.delete(url, headers=request_headers)
+                response._sent_data = None
+                response._method = 'DELETE'
+                
+            else:
+                raise ValueError(f"Неподдерживаемый метод: {method}")
+            
+            if self.debug:
+                print(f"[DEBUG] Response status: {response.status_code}")
+                print(f"[DEBUG] Response headers: {dict(response.headers)}")
+            
+            return response
+            
+        except requests.exceptions.ConnectionError:
+            print("Ошибка: Не удалось подключиться к серверу. Убедитесь, что сервер запущен.")
+            return None
+        except Exception as e:
+            print(f"Ошибка запроса: {e}")
+            return None
+    
+    # ========== НОВЫЕ МЕТОДЫ ДЛЯ API v4.0 ==========
+    
     def test_health_check(self):
         """Тест health check эндпоинта"""
         print("\n1. Проверка здоровья сервера")
@@ -183,9 +205,10 @@ class APITester:
         return self.print_response(response)
     
     def register(self):
-        """Регистрация нового пользователя"""
+        """Регистрация нового пользователя (с бонусом 200 AC)"""
         print("\n2. Регистрация нового пользователя")
         print("-" * 30)
+        print("ℹ️  При регистрации начисляется бонус 200 AC")
         
         login = input("Логин: ").strip()
         mail = input("Email: ").strip()
@@ -207,11 +230,12 @@ class APITester:
             if isinstance(result, dict) and 'user' in result and 'tokens' in result:
                 self.current_token = result['tokens'].get('access_token')
                 self.current_user = result['user'].get('nickname')
+                balance = result['user'].get('balance')
                 print(f"\n✓ Автоматически авторизован как: {self.current_user}")
-                print(f"✓ Токен получен: {self.current_token}")
+                print(f"✓ Баланс: {balance} AC (включая бонус за регистрацию)")
+                print(f"✓ Токен получен: {self.current_token[:20]}...")
             else:
                 print(f"\n✗ Не удалось получить токен из ответа")
-                print(f"Ответ: {result}")
     
     def login(self):
         """Вход в систему"""
@@ -237,12 +261,9 @@ class APITester:
                 self.current_token = result['tokens'].get('access_token')
                 self.current_user = result['user'].get('nickname')
                 print(f"\n✓ Успешно авторизован как: {self.current_user}")
-                print(f"✓ Токен получен: {self.current_token}")
+                print(f"✓ Токен получен: {self.current_token[:20]}...")
             else:
                 print(f"\n✗ Не удалось получить токен из ответа")
-                print(f"Структура ответа: {result}")
-        else:
-            print(f"\n✗ Ошибка входа. Статус: {response.status_code if response else 'No response'}")
     
     def refresh_token(self):
         """Обновление токена"""
@@ -253,7 +274,6 @@ class APITester:
             print("Ошибка: Сначала выполните вход или регистрацию")
             return
         
-        # В реальном приложении нужно хранить refresh_token
         refresh_token = input("Refresh token: ").strip()
         
         if not refresh_token:
@@ -267,10 +287,10 @@ class APITester:
         if response and response.status_code == 200:
             if isinstance(result, dict) and 'access_token' in result:
                 self.current_token = result['access_token']
-                print(f"\n✓ Токен обновлен: {self.current_token}")
+                print(f"\n✓ Токен обновлен: {self.current_token[:20]}...")
     
     def get_profile(self):
-        """Получение профиля текущего пользователя"""
+        """Получение профиля текущего пользователя (с товарами на продаже и купленными)"""
         print("\n5. Получение профиля пользователя")
         print("-" * 30)
         
@@ -278,28 +298,21 @@ class APITester:
             print("Ошибка: Сначала выполните вход или регистрацию")
             return
         
-        is_active = input("Показать активные товары? (y/n, по умолчанию y): ").strip().lower()
-        params = {'is_active': 'true' if is_active in ['y', ''] else 'false'}
-        
-        response = self.make_request('GET', '/auth/profile', params)
+        response = self.make_request('GET', '/auth/profile')
         self.print_response(response)
     
     def get_products(self):
-        """Получение списка товаров"""
+        """Получение списка товаров (только непроданные, с водяным знаком)"""
         print("\n6. Получение списка товаров")
         print("-" * 30)
+        print("ℹ️  Отображаются только непроданные товары с водяным знаком")
         
         page = input("Номер страницы (по умолчанию 1): ").strip()
         page = int(page) if page.isdigit() else 1
         
-        is_active = input("Показать активные товары? (y/n, по умолчанию y): ").strip().lower()
+        params = {'page': page}
         
-        params = {
-            'page': page,
-            'is_active': 'true' if is_active in ['y', ''] else 'false'
-        }
-        
-        response = self.make_request('GET', '/products', params)
+        response = self.make_request('GET', '/products', params=params)
         self.print_response(response)
     
     def get_product_detail(self):
@@ -316,8 +329,8 @@ class APITester:
         response = self.make_request('GET', f'/products/{product_id}')
         self.print_response(response)
     
-    def create_product_with_curl(self):
-        """Создание товара через curl"""
+    def create_product(self):
+        """Создание товара (без списания средств)"""
         print("\n8. Создание товара")
         print("-" * 30)
         
@@ -327,7 +340,7 @@ class APITester:
         
         print("Введите данные товара:")
         title = input("Название товара (3-100 символов): ").strip()
-        price = input("Цена (1-10000 AC): ").strip()
+        price = input(f"Цена (10-10000 AC): ").strip()
         description = input("Описание (до 1000 символов, необязательно): ").strip()
         
         print("\nУкажите путь к изображению:")
@@ -344,9 +357,6 @@ class APITester:
         
         try:
             # Формируем команду curl
-            import subprocess
-            
-            # Базовые параметры curl
             cmd = [
                 'curl', '-X', 'POST',
                 f'{API_URL}/products',
@@ -356,19 +366,14 @@ class APITester:
                 '--silent'
             ]
             
-            # Добавляем описание если есть
             if description:
                 cmd.extend(['-F', f'description={description}'])
             
-            # Добавляем файл изображения
             cmd.extend(['-F', f'image=@{image_path}'])
             
             print(f"\nВыполняем команду curl...")
             
-            # Выполняем команду
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
-            
-            print(f"\nСтатус curl: {result.returncode}")
             
             if result.stdout:
                 try:
@@ -384,35 +389,9 @@ class APITester:
         except Exception as e:
             print(f"❌ Ошибка при выполнении curl: {e}")
     
-    def update_product_price(self):
-        """Изменение цены товара"""
-        print("\n9. Изменение цены товара")
-        print("-" * 30)
-        
-        if not self.current_token:
-            print("Ошибка: Сначала выполните вход или регистрацию")
-            return
-        
-        product_id = input("ID товара: ").strip()
-        new_price = input("Новая цена: ").strip()
-        
-        if not product_id or not new_price:
-            print("Ошибка: ID товара и новая цена обязательны")
-            return
-        
-        try:
-            new_price = int(new_price)
-        except ValueError:
-            print("Ошибка: Цена должна быть числом")
-            return
-        
-        data = {'new_price': new_price}
-        response = self.make_request('PUT', f'/products/{product_id}/price', data)
-        self.print_response(response)
-    
-    def subscribe_to_product(self):
-        """Подписка на товар"""
-        print("\n10. Подписка на товар")
+    def buy_product(self):
+        """Покупка товара"""
+        print("\n9. Покупка товара")
         print("-" * 30)
         
         if not self.current_token:
@@ -425,30 +404,22 @@ class APITester:
             print("Ошибка: ID товара обязателен")
             return
         
-        response = self.make_request('POST', f'/products/{product_id}/subscribe')
-        self.print_response(response)
-    
-    def unsubscribe_from_product(self):
-        """Отписка от товара"""
-        print("\n11. Отписка от товара")
-        print("-" * 30)
+        print("\nℹ️  При покупке списывается полная стоимость товара")
+        print("ℹ️  Комиссия 5% сгорает, остальное получает продавец")
+        print("ℹ️  После покупки товар переходит в вашу коллекцию")
         
-        if not self.current_token:
-            print("Ошибка: Сначала выполните вход или регистрацию")
+        confirm = input("\nПодтвердить покупку? (y/n): ").strip().lower()
+        
+        if confirm != 'y':
+            print("Покупка отменена")
             return
         
-        product_id = input("ID товара: ").strip()
-        
-        if not product_id:
-            print("Ошибка: ID товара обязателен")
-            return
-        
-        response = self.make_request('POST', f'/products/{product_id}/unsubscribe')
+        response = self.make_request('POST', f'/products/{product_id}/buy')
         self.print_response(response)
     
     def remove_product(self):
-        """Снятие товара с продажи"""
-        print("\n12. Снятие товара с продажи")
+        """Удаление товара (только если не продан)"""
+        print("\n10. Удаление товара")
         print("-" * 30)
         
         if not self.current_token:
@@ -459,6 +430,16 @@ class APITester:
         
         if not product_id:
             print("Ошибка: ID товара обязателен")
+            return
+        
+        print("\n⚠️  Внимание: Товар будет полностью удален из системы")
+        print("⚠️  Это действие нельзя отменить")
+        print("⚠️  Удалить можно только непроданный товар")
+        
+        confirm = input("\nПодтвердить удаление? (y/n): ").strip().lower()
+        
+        if confirm != 'y':
+            print("Удаление отменено")
             return
         
         response = self.make_request('POST', f'/products/{product_id}/remove')
@@ -466,7 +447,7 @@ class APITester:
     
     def search_products(self):
         """Поиск товаров"""
-        print("\n13. Поиск товаров")
+        print("\n11. Поиск товаров")
         print("-" * 30)
         
         search_term = input("Поисковый запрос: ").strip()
@@ -491,27 +472,93 @@ class APITester:
         except ValueError:
             print("Предупреждение: Неверный формат min_score, используется значение по умолчанию")
         
-        response = self.make_request('GET', '/products/search', params)
+        response = self.make_request('GET', '/products/search', params=params)
         self.print_response(response)
     
-    def get_user_subscriptions(self):
-        """Получение подписок пользователя"""
-        print("\n14. Получение подписок пользователя")
+    def get_purchases(self):
+        """История покупок"""
+        print("\n12. История покупок")
         print("-" * 30)
         
         if not self.current_token:
             print("Ошибка: Сначала выполните вход или регистрацию")
             return
         
-        is_active = input("Показать активные подписки? (y/n, по умолчанию y): ").strip().lower()
-        params = {'is_active': 'true' if is_active in ['y', ''] else 'false'}
+        page = input("Номер страницы (по умолчанию 1): ").strip()
+        page = int(page) if page.isdigit() else 1
         
-        response = self.make_request('GET', '/account/subscriptions', params)
+        per_page = input("Количество на странице (по умолчанию 20): ").strip()
+        per_page = int(per_page) if per_page.isdigit() else 20
+        
+        params = {
+            'page': page,
+            'per_page': per_page
+        }
+        
+        response = self.make_request('GET', '/account/purchases', params=params)
+        self.print_response(response)
+    
+    def get_sales(self):
+        """История продаж"""
+        print("\n13. История продаж")
+        print("-" * 30)
+        
+        if not self.current_token:
+            print("Ошибка: Сначала выполните вход или регистрацию")
+            return
+        
+        page = input("Номер страницы (по умолчанию 1): ").strip()
+        page = int(page) if page.isdigit() else 1
+        
+        per_page = input("Количество на странице (по умолчанию 20): ").strip()
+        per_page = int(per_page) if per_page.isdigit() else 20
+        
+        params = {
+            'page': page,
+            'per_page': per_page
+        }
+        
+        response = self.make_request('GET', '/account/sales', params=params)
+        self.print_response(response)
+    
+    def get_stats(self):
+        """Статистика профиля (график баланса)"""
+        print("\n14. Статистика профиля")
+        print("-" * 30)
+        
+        if not self.current_token:
+            print("Ошибка: Сначала выполните вход или регистрацию")
+            return
+        
+        response = self.make_request('GET', '/account/stats')
+        self.print_response(response)
+    
+    def claim_daily_bonus(self):
+        """Получение ежедневного бонуса"""
+        print("\n15. Получение ежедневного бонуса")
+        print("-" * 30)
+        
+        if not self.current_token:
+            print("Ошибка: Сначала выполните вход или регистрацию")
+            return
+        
+        print("ℹ️  Условия получения бонуса:")
+        print("   - Можно получать 1 раз в день")
+        print("   - Баланс должен быть меньше 500 AC")
+        print(f"   - Сумма бонуса: 50 AC")
+        
+        confirm = input("\nПолучить бонус? (y/n): ").strip().lower()
+        
+        if confirm != 'y':
+            print("Отменено")
+            return
+        
+        response = self.make_request('POST', '/account/daily-bonus')
         self.print_response(response)
     
     def declare_bankruptcy(self):
         """Объявление банкротства"""
-        print("\n15. Объявление банкротства")
+        print("\n16. Объявление банкротства")
         print("-" * 30)
         
         if not self.current_token:
@@ -519,10 +566,13 @@ class APITester:
             return
         
         print(f"Текущий пользователь: {self.current_user}")
-        print("Внимание: Банкротство можно объявлять только 1 раз до следующего обновления цен")
-        print("и только при балансе < 100 AC, без активных товаров и подписок")
+        print("ℹ️  Условия банкротства:")
+        print("   - Можно объявлять 1 раз в день")
+        print("   - Баланс должен быть меньше 100 AC")
+        print("   - Нет активных товаров на продаже")
+        print("   - После банкротства баланс становится 100 AC")
         
-        confirm = input("Вы уверены? (y/n): ").strip().lower()
+        confirm = input("\nВы уверены? (y/n): ").strip().lower()
         
         if confirm != 'y':
             print("Отменено")
@@ -531,29 +581,34 @@ class APITester:
         response = self.make_request('POST', '/account/bankruptcy')
         self.print_response(response)
     
-    def get_toplist(self):
-        """Получить список самых богатых игроков"""
-        print("\n16. Получить список самых богатых игроков")
+    def get_rating(self):
+        """Самые богатые игроки"""
+        print("\n17. Самые богатые игроки")
         print("-" * 30)
 
         page = input("Номер страницы (по умолчанию 1): ").strip()
         page = int(page) if page.isdigit() else 1
         
-        per_page = input("Количество игроков на одной странице (1-100, по умолчанию 20): ").strip()
+        per_page = input("Количество игроков на странице (1-100, по умолчанию 20): ").strip()
         per_page = int(per_page) if per_page.isdigit() else 20
         
         params = {
             'page': page,
-            'per_page': min(max(per_page, 1), 100)  # Ограничение 1-100
+            'per_page': min(max(per_page, 1), 100)
         }
         
-        response = self.make_request('GET', '/players/rating', params)
+        response = self.make_request('GET', '/players/rating', params=params)
         self.print_response(response)
     
-    def get_image(self):
-        """Получение изображения товара"""
-        print("\n17. Получение изображения товара")
+    def get_original_image(self):
+        """Получение оригинального изображения (только для владельца)"""
+        print("\n18. Получение оригинального изображения")
         print("-" * 30)
+        print("ℹ️  Доступно только владельцу товара (создателю или покупателю)")
+        
+        if not self.current_token:
+            print("Ошибка: Сначала выполните вход или регистрацию")
+            return
         
         file_id = input("ID файла изображения: ").strip()
         
@@ -561,37 +616,74 @@ class APITester:
             print("Ошибка: ID файла обязателен")
             return
         
-        url = f"{API_URL}/images/thumbnail/{file_id}"
-        print(f"URL для просмотра в браузере: {url}")
+        url = f"{API_URL}/images/original/{file_id}"
+        print(f"URL: {url}")
         
-        # Пытаемся скачать изображение
         try:
-            response = requests.get(url, stream=True)
+            headers = {'Authorization': f'Bearer {self.current_token}'}
+            response = requests.get(url, headers=headers, stream=True)
+            
             if response.status_code == 200:
                 print(f"✓ Изображение найдено, размер: {len(response.content)} байт")
                 print(f"✓ Content-Type: {response.headers.get('content-type')}")
                 
-                # Сохраняем изображение
                 save = input("Сохранить изображение? (y/n): ").strip().lower()
                 if save == 'y':
-                    filename = input("Имя файла для сохранения (по умолчанию image.jpg): ").strip()
+                    filename = input("Имя файла для сохранения (по умолчанию original.jpg): ").strip()
                     if not filename:
-                        filename = 'image.jpg'
+                        filename = 'original.jpg'
                     
                     with open(filename, 'wb') as f:
                         f.write(response.content)
                     print(f"✓ Изображение сохранено как {filename}")
+            elif response.status_code == 404:
+                print("✗ Изображение не найдено или у вас нет прав доступа")
             else:
                 print(f"✗ Ошибка: {response.status_code}")
-                if response.headers.get('content-type') == 'application/json':
-                    error = response.json()
-                    print(f"Ошибка: {error.get('error', 'Неизвестная ошибка')}")
+        except Exception as e:
+            print(f"✗ Ошибка при загрузке изображения: {e}")
+    
+    def get_watermarked_image(self):
+        """Получение изображения с водяным знаком (доступно всем)"""
+        print("\n19. Получение изображения с водяным знаком")
+        print("-" * 30)
+        print("ℹ️  Доступно всем, но только для непроданных товаров")
+        
+        file_id = input("ID файла изображения: ").strip()
+        
+        if not file_id:
+            print("Ошибка: ID файла обязателен")
+            return
+        
+        url = f"{API_URL}/images/watermarked/{file_id}"
+        print(f"URL: {url}")
+        
+        try:
+            response = requests.get(url, stream=True)
+            
+            if response.status_code == 200:
+                print(f"✓ Изображение найдено, размер: {len(response.content)} байт")
+                print(f"✓ Content-Type: {response.headers.get('content-type')}")
+                
+                save = input("Сохранить изображение? (y/n): ").strip().lower()
+                if save == 'y':
+                    filename = input("Имя файла для сохранения (по умолчанию watermarked.jpg): ").strip()
+                    if not filename:
+                        filename = 'watermarked.jpg'
+                    
+                    with open(filename, 'wb') as f:
+                        f.write(response.content)
+                    print(f"✓ Изображение сохранено как {filename}")
+            elif response.status_code == 404:
+                print("✗ Изображение не найдено или товар уже продан")
+            else:
+                print(f"✗ Ошибка: {response.status_code}")
         except Exception as e:
             print(f"✗ Ошибка при загрузке изображения: {e}")
     
     def logout(self):
         """Выход из системы"""
-        print("\n18. Выход из системы")
+        print("\n20. Выход из системы")
         print("-" * 30)
         
         self.current_token = None
@@ -608,81 +700,11 @@ class APITester:
         else:
             print("Не авторизован")
         print(f"Сервер: {BASE_URL}")
-        print(f"API версия: 2.1")
-    
-    def make_request(self, method, endpoint, data=None, headers=None, files=None):
-        """Выполняет HTTP запрос с обработкой ошибок"""
-        url = f"{API_URL}{endpoint}"
-        
-        # Добавляем токен авторизации, если есть
-        request_headers = {}
-        if headers:
-            request_headers.update(headers)
-        
-        if self.current_token and 'Authorization' not in request_headers:
-            request_headers['Authorization'] = f'Bearer {self.current_token}'
-            if self.debug:
-                print(f"[DEBUG] Adding Authorization header with token: {self.current_token[:20]}...")
-        
-        # Сохраняем данные для отображения
-        sent_data = data
-        
-        if self.debug:
-            print(f"[DEBUG] Making {method} request to {url}")
-            print(f"[DEBUG] Headers: {request_headers}")
-            if data and not files:
-                print(f"[DEBUG] Data to send: {data}")
-        
-        try:
-            if method.upper() == 'GET':
-                response = self.session.get(url, params=data, headers=request_headers)
-                # Для GET запросов данные в params
-                response._sent_data = data
-                response._method = 'GET'
-                
-            elif method.upper() == 'POST':
-                if files:
-                    # Сохраняем данные формы отдельно
-                    response = self.session.post(url, data=data, files=files, headers=request_headers)
-                    response._sent_data = data
-                    response._method = 'POST'
-                else:
-                    response = self.session.post(url, json=data, headers=request_headers)
-                    response._sent_data = data
-                    response._method = 'POST'
-                    
-            elif method.upper() == 'PUT':
-                response = self.session.put(url, json=data, headers=request_headers)
-                response._sent_data = data
-                response._method = 'PUT'
-                
-            elif method.upper() == 'DELETE':
-                response = self.session.delete(url, headers=request_headers)
-                response._sent_data = None  # DELETE обычно без тела
-                response._method = 'DELETE'
-                
-            else:
-                raise ValueError(f"Неподдерживаемый метод: {method}")
-            
-            # Добавляем метод в объект ответа для удобного доступа
-            response._method = method.upper()
-            
-            if self.debug:
-                print(f"[DEBUG] Response status: {response.status_code}")
-                print(f"[DEBUG] Response headers: {dict(response.headers)}")
-            
-            return response
-            
-        except requests.exceptions.ConnectionError:
-            print("Ошибка: Не удалось подключиться к серверу. Убедитесь, что сервер запущен.")
-            return None
-        except Exception as e:
-            print(f"Ошибка запроса: {e}")
-            return None
+        print(f"API версия: 4.0 (Маркетплейс)")
     
     def test_raw_request(self):
         """Прямой запрос для отладки"""
-        print("\n19. Прямой запрос (для отладки)")
+        print("\n21. Прямой запрос (для отладки)")
         print("-" * 30)
         
         method = input("Метод (GET/POST/PUT/DELETE): ").strip().upper()
@@ -702,7 +724,7 @@ class APITester:
         while True:
             self.clear_screen()
             print("=" * 60)
-            print("API ТЕСТЕР ДЛЯ МАРКЕТПЛЕЙСА v2.1")
+            print("API ТЕСТЕР ДЛЯ МАРКЕТПЛЕЙСА v4.0")
             print("=" * 60)
             
             self.show_status()
@@ -710,28 +732,30 @@ class APITester:
             print("\nВыберите действие:")
             print("=" * 60)
             print(" 1. Проверка здоровья сервера")
-            print(" 2. Регистрация")
+            print(" 2. Регистрация (+200 AC бонус)")
             print(" 3. Вход")
             print(" 4. Обновить токен")
-            print(" 5. Получить профиль")
-            print(" 6. Получить список товаров")
-            print(" 7. Получить детали товара")
+            print(" 5. Профиль (товары на продаже + купленные)")
+            print(" 6. Список товаров (с водяным знаком)")
+            print(" 7. Детали товара")
             print(" 8. Создать товар")
-            print(" 9. Изменить цену товара")
-            print("10. Подписаться на товар")
-            print("11. Отписаться от товара")
-            print("12. Снять товар с продажи")
-            print("13. Поиск товаров")
-            print("14. Мои подписки")
-            print("15. Объявить банкротство")
-            print("16. Самые богатые игроки")
-            print("17. Получить изображение")
-            print("18. Выйти из системы")
-            print("19. Прямой запрос (отладка)")
+            print(" 9. Купить товар")
+            print("10. Удалить товар (только непроданный)")
+            print("11. Поиск товаров")
+            print("12. История покупок")
+            print("13. История продаж")
+            print("14. Статистика профиля (график баланса)")
+            print("15. Получить ежедневный бонус (+50 AC)")
+            print("16. Объявить банкротство")
+            print("17. Рейтинг игроков")
+            print("18. Оригинальное изображение (только владельцу)")
+            print("19. Изображение с водяным знаком")
+            print("20. Выйти из системы")
+            print("21. Прямой запрос (отладка)")
             print(" 0. Выход из программы")
             print("=" * 60)
             
-            choice = input("\nВаш выбор (0-19): ").strip()
+            choice = input("\nВаш выбор (0-21): ").strip()
             
             if choice == '0':
                 print("\nДо свидания!")
@@ -758,39 +782,45 @@ class APITester:
                 self.get_product_detail()
                 self.wait_for_input()
             elif choice == '8':
-                self.create_product_with_curl()
+                self.create_product()
                 self.wait_for_input()
             elif choice == '9':
-                self.update_product_price()
+                self.buy_product()
                 self.wait_for_input()
             elif choice == '10':
-                self.subscribe_to_product()
-                self.wait_for_input()
-            elif choice == '11':
-                self.unsubscribe_from_product()
-                self.wait_for_input()
-            elif choice == '12':
                 self.remove_product()
                 self.wait_for_input()
-            elif choice == '13':
+            elif choice == '11':
                 self.search_products()
                 self.wait_for_input()
+            elif choice == '12':
+                self.get_purchases()
+                self.wait_for_input()
+            elif choice == '13':
+                self.get_sales()
+                self.wait_for_input()
             elif choice == '14':
-                self.get_user_subscriptions()
+                self.get_stats()
                 self.wait_for_input()
             elif choice == '15':
-                self.declare_bankruptcy()
+                self.claim_daily_bonus()
                 self.wait_for_input()
             elif choice == '16':
-                self.get_toplist()
+                self.declare_bankruptcy()
                 self.wait_for_input()
             elif choice == '17':
-                self.get_image()
+                self.get_rating()
                 self.wait_for_input()
             elif choice == '18':
-                self.logout()
+                self.get_original_image()
                 self.wait_for_input()
             elif choice == '19':
+                self.get_watermarked_image()
+                self.wait_for_input()
+            elif choice == '20':
+                self.logout()
+                self.wait_for_input()
+            elif choice == '21':
                 self.test_raw_request()
                 self.wait_for_input()
             else:
@@ -799,7 +829,7 @@ class APITester:
 
 def main():
     """Точка входа в программу"""
-    print("Запуск API тестера для Market API v2.1...")
+    print("Запуск API тестера для Market API v4.0...")
     print(f"Подключение к серверу: {BASE_URL}")
     
     tester = APITester()
@@ -815,7 +845,6 @@ def main():
                 print(f"✓ Сервер работает корректно (версия: {result.get('version', 'unknown')})")
             else:
                 print("⚠ Сервер отвечает, но ответ не соответствует ожидаемому формату")
-                print(f"Ответ: {result}")
         else:
             print("✗ Сервер не ответил")
     except Exception as e:
