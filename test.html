@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArtMarket API Тестировщик</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        .config-panel {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+        .config-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        .config-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        .config-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .config-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102,126,234,0.4);
+        }
+        .btn-danger {
+            background: #e74c3c;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        .btn-success {
+            background: #27ae60;
+        }
+        .btn-success:hover {
+            background: #229954;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+        }
+        .stat-card .value.passed { color: #27ae60; }
+        .stat-card .value.failed { color: #e74c3c; }
+        .stat-card .value.percent { color: #667eea; }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            background: white;
+            border: none;
+            padding: 12px 24px;
+            cursor: pointer;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        .content {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .test-item {
+            border-left: 4px solid #e0e0e0;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .test-item.passed {
+            border-left-color: #27ae60;
+            background: #d5f4e6;
+        }
+        .test-item.failed {
+            border-left-color: #e74c3c;
+            background: #fadbd8;
+        }
+        .test-item .method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11px;
+            margin-right: 10px;
+        }
+        .test-item .method.GET { background: #3498db; color: white; }
+        .test-item .method.POST { background: #27ae60; color: white; }
+        .test-item .method.PUT { background: #f39c12; color: white; }
+        .test-item .method.DELETE { background: #e74c3c; color: white; }
+        .test-item .status {
+            float: right;
+            font-weight: bold;
+        }
+        .test-item .status.passed { color: #27ae60; }
+        .test-item .status.failed { color: #e74c3c; }
+        .test-item .details {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #666;
+            word-break: break-all;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #27ae60;
+            transition: width 0.3s;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .test-summary {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            font-weight: bold;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="config-panel">
+                <div class="config-group">
+                    <label>🌐 IP Адрес / Хост</label>
+                    <input type="text" id="host" placeholder="localhost или 192.168.1.100" value="localhost">
+                </div>
+                <div class="config-group">
+                    <label>🔌 Порт</label>
+                    <input type="number" id="port" placeholder="5000" value="5000">
+                </div>
+                <div class="config-group">
+                    <label>🔑 Тестовый логин</label>
+                    <input type="text" id="testLogin" placeholder="login" value="tester_123">
+                </div>
+                <div class="config-group">
+                    <label>📧 Тестовая почта</label>
+                    <input type="email" id="testMail" placeholder="email" value="tester@test.com">
+                </div>
+                <div class="config-group">
+                    <label>🔐 Пароль</label>
+                    <input type="text" id="testPassword" placeholder="password" value="test123456">
+                </div>
+                <button onclick="runAllTests()" id="runBtn">🚀 Запустить автотест</button>
+                <button onclick="clearResults()" class="btn-danger">🗑️ Очистить</button>
+            </div>
+        </div>
+
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <h3>✅ Пройдено</h3>
+                <div class="value passed" id="passedCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>❌ Провалено</h3>
+                <div class="value failed" id="failedCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>📊 Всего тестов</h3>
+                <div class="value" id="totalCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>🎯 Работоспособность</h3>
+                <div class="value percent" id="percentValue">0%</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('results')">📋 Результаты тестов</button>
+            <button class="tab" onclick="showTab('api')">🔧 Ручное тестирование API</button>
+        </div>
+
+        <div id="resultsTab" class="content">
+            <div id="testResults"></div>
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div id="testSummary" class="test-summary"></div>
+        </div>
+
+        <div id="apiTab" class="content" style="display: none;">
+            <div style="margin-bottom: 20px;">
+                <h3>🔧 Ручное тестирование эндпоинтов</h3>
+                <p style="color: #666; font-size: 14px; margin-top: 10px;">Введите URL и метод для отправки запроса</p>
+            </div>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <select id="manualMethod" style="padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px;">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
+                <input type="text" id="manualUrl" placeholder="/api/products" style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px;">
+                <button onclick="sendManualRequest()">Отправить</button>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <textarea id="manualBody" placeholder="JSON тело запроса (для POST/PUT)" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; height: 100px;"></textarea>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="useToken" checked> Использовать токен авторизации
+                </label>
+            </div>
+            <div id="manualResponse" style="background: #f8f9fa; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+                <span style="color: #999;">Ответ будет показан здесь...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let accessToken = null;
+        let refreshToken = null;
+        let testUserId = null;
+        let testProductId = null;
+
+        function getBaseUrl() {
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            return `http://${host}:${port}`;
+        }
+
+        async function apiRequest(endpoint, method = 'GET', body = null, useAuth = true) {
+            const url = getBaseUrl() + endpoint;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (useAuth && accessToken) {
+                headers['Authorization'] = `Bearer ${accessToken}`;
+            }
+            
+            const options = {
+                method: method,
+                headers: headers
+            };
+            
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+            
+            try {
+                const response = await fetch(url, options);
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+                return { status: response.status, data };
+            } catch (error) {
+                return { status: 0, data: { error: error.message } };
+            }
+        }
+
+        async function uploadImage(endpoint, formData, useAuth = true) {
+            const url = getBaseUrl() + endpoint;
+            const headers = {};
+            if (useAuth && accessToken) {
+                headers['Authorization'] = `Bearer ${accessToken}`;
+            }
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formData
+                });
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+                return { status: response.status, data };
+            } catch (error) {
+                return { status: 0, data: { error: error.message } };
+            }
+        }
+
+        function addTestResult(name, method, endpoint, passed, expected, actual, details = '') {
+            const resultsDiv = document.getElementById('testResults');
+            const testItem = document.createElement('div');
+            testItem.className = `test-item ${passed ? 'passed' : 'failed'}`;
+            testItem.innerHTML = `
+                <span class="method ${method}">${method}</span>
+                <strong>${name}</strong>
+                <span class="status ${passed ? 'passed' : 'failed'}">${passed ? '✓ ПРОЙДЕН' : '✗ ПРОВАЛЕН'}</span>
+                <div class="details">
+                    <div>📍 ${endpoint}</div>
+                    <div>📦 Ожидалось: ${expected}</div>
+                    <div>📦 Получено: ${actual}</div>
+                    ${details ? `<div>💬 ${details}</div>` : ''}
+                </div>
+            `;
+            resultsDiv.appendChild(testItem);
+            
+            // Обновляем статистику
+            const passedCount = parseInt(document.getElementById('passedCount').innerText) + (passed ? 1 : 0);
+            const failedCount = parseInt(document.getElementById('failedCount').innerText) + (passed ? 0 : 1);
+            const totalCount = passedCount + failedCount;
+            const percent = totalCount > 0 ? Math.round((passedCount / totalCount) * 100) : 0;
+            
+            document.getElementById('passedCount').innerText = passedCount;
+            document.getElementById('failedCount').innerText = failedCount;
+            document.getElementById('totalCount').innerText = totalCount;
+            document.getElementById('percentValue').innerText = `${percent}%`;
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            
+            const summary = document.getElementById('testSummary');
+            if (percent === 100 && totalCount > 0) {
+                summary.innerHTML = '🎉 ПОЗДРАВЛЯЮ! Все тесты пройдены успешно! API полностью соответствует документации! 🎉';
+                summary.style.background = '#d5f4e6';
+                summary.style.color = '#27ae60';
+            } else if (percent >= 80) {
+                summary.innerHTML = `✅ Работоспособность: ${percent}% - Большинство тестов пройдено.`;
+                summary.style.background = '#fff3cd';
+                summary.style.color = '#856404';
+            } else {
+                summary.innerHTML = `⚠️ Работоспособность: ${percent}% - Требуется доработка API.`;
+                summary.style.background = '#fadbd8';
+                summary.style.color = '#c0392b';
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('testResults').innerHTML = '';
+            document.getElementById('passedCount').innerText = '0';
+            document.getElementById('failedCount').innerText = '0';
+            document.getElementById('totalCount').innerText = '0';
+            document.getElementById('percentValue').innerText = '0%';
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('testSummary').innerHTML = '';
+            accessToken = null;
+            refreshToken = null;
+            testUserId = null;
+            testProductId = null;
+        }
+
+        async function runAllTests() {
+            clearResults();
+            const runBtn = document.getElementById('runBtn');
+            runBtn.disabled = true;
+            runBtn.innerHTML = '<span class="loading"></span> Тестирование...';
+            
+            const login = document.getElementById('testLogin').value;
+            const mail = document.getElementById('testMail').value;
+            const password = document.getElementById('testPassword').value;
+            
+            // Тест 1: Health check
+            const health = await apiRequest('/api/health', 'GET');
+            addTestResult('Health Check', 'GET', '/api/health', 
+                health.status === 200 && health.data.status === 'healthy',
+                'status 200, healthy', `status ${health.status}`,
+                health.data.version ? `Версия: ${health.data.version}` : '');
+            
+            // Тест 2: Регистрация
+            const register = await apiRequest('/api/auth/register', 'POST', {
+                login: login,
+                mail: mail,
+                password: password
+            }, false);
+            const registerPassed = register.status === 201 && register.data.user && register.data.tokens;
+            addTestResult('Регистрация', 'POST', '/api/auth/register',
+                registerPassed,
+                'status 201, user, tokens', `status ${register.status}`,
+                registerPassed ? `Пользователь: ${register.data.user.nickname}` : register.data.error || 'Ошибка');
+            
+            if (registerPassed) {
+                accessToken = register.data.tokens.access_token;
+                refreshToken = register.data.tokens.refresh_token;
+                testUserId = register.data.user.id;
+            } else {
+                // Пробуем логин если регистрация не удалась
+                const loginAttempt = await apiRequest('/api/auth/login', 'POST', {
+                    login: login,
+                    password: password
+                }, false);
+                if (loginAttempt.status === 200 && loginAttempt.data.tokens) {
+                    accessToken = loginAttempt.data.tokens.access_token;
+                    refreshToken = loginAttempt.data.tokens.refresh_token;
+                    testUserId = loginAttempt.data.user.id;
+                    addTestResult('Логин (существующий пользователь)', 'POST', '/api/auth/login',
+                        true, 'status 200', `status ${loginAttempt.status}`, 'Успешный вход');
+                }
+            }
+            
+            // Тест 3: Вход
+            const loginTest = await apiRequest('/api/auth/login', 'POST', {
+                login: login,
+                password: password
+            }, false);
+            const loginPassed = loginTest.status === 200 && loginTest.data.tokens;
+            addTestResult('Авторизация', 'POST', '/api/auth/login',
+                loginPassed,
+                'status 200, tokens', `status ${loginTest.status}`,
+                loginPassed ? 'Токены получены' : (loginTest.data.error || 'Ошибка'));
+            
+            if (loginPassed && !accessToken) {
+                accessToken = loginTest.data.tokens.access_token;
+                refreshToken = loginTest.data.tokens.refresh_token;
+            }
+            
+            // Тест 4: Профиль
+            if (accessToken) {
+                const profile = await apiRequest('/api/auth/profile', 'GET');
+                const profilePassed = profile.status === 200 && profile.data.nickname;
+                addTestResult('Профиль пользователя', 'GET', '/api/auth/profile',
+                    profilePassed,
+                    'status 200, данные пользователя', `status ${profile.status}`,
+                    profilePassed ? `Ник: ${profile.data.nickname}, Баланс: ${profile.data.balance}` : (profile.data.error || 'Ошибка'));
+            } else {
+                addTestResult('Профиль пользователя', 'GET', '/api/auth/profile', false, 'Токен авторизации', 'Нет токена', 'Пропуск теста');
+            }
+            
+            // Тест 5: Обновление токена
+            if (refreshToken) {
+                const refresh = await apiRequest('/api/auth/refresh', 'POST', {
+                    refresh_token: refreshToken
+                }, false);
+                const refreshPassed = refresh.status === 200 && refresh.data.access_token;
+                addTestResult('Обновление токена', 'POST', '/api/auth/refresh',
+                    refreshPassed,
+                    'status 200, новый access_token', `status ${refresh.status}`,
+                    refreshPassed ? 'Токен обновлен' : (refresh.data.error || 'Ошибка'));
+            }
+            
+            // Тест 6: Список товаров
+            const products = await apiRequest('/api/products?page=1', 'GET');
+            const productsPassed = products.status === 200 && products.data.data !== undefined;
+            addTestResult('Список товаров', 'GET', '/api/products',
+                productsPassed,
+                'status 200, массив товаров', `status ${products.status}`,
+                productsPassed ? `Товаров на странице: ${products.data.data.length}` : (products.data.error || 'Ошибка'));
+            
+            // Тест 7: Поиск
+            const search = await apiRequest('/api/products/search?q=test', 'GET');
+            const searchPassed = search.status === 200 && search.data.results !== undefined;
+            addTestResult('Поиск товаров', 'GET', '/api/products/search',
+                searchPassed,
+                'status 200, results', `status ${search.status}`,
+                searchPassed ? `Найдено: ${search.data.results.length}` : (search.data.error || 'Ошибка'));
+            
+            // Тест 8: Создание товара (с изображением)
+            if (accessToken) {
+                try {
+                    const formData = new FormData();
+                    formData.append('title', 'Тестовый товар');
+                    formData.append('price', '100');
+                    formData.append('description', 'Автотест API');
+                    
+                    // Создаем тестовое изображение
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 100;
+                    canvas.height = 100;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(0, 0, 100, 100);
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+                    formData.append('image', blob, 'test.jpg');
+                    
+                    const createProduct = await uploadImage('/api/products', formData, true);
+                    const createPassed = createProduct.status === 201 && createProduct.data.id;
+                    addTestResult('Создание товара', 'POST', '/api/products',
+                        createPassed,
+                        'status 201, id товара', `status ${createProduct.status}`,
+                        createPassed ? `ID: ${createProduct.data.id}` : (createProduct.data.error || 'Ошибка'));
+                    
+                    if (createPassed) {
+                        testProductId = createProduct.data.id;
+                        
+                        // Тест 9: Детали товара
+                        const productDetail = await apiRequest(`/api/products/${testProductId}`, 'GET');
+                        const detailPassed = productDetail.status === 200 && productDetail.data.title;
+                        addTestResult('Детали товара', 'GET', `/api/products/${testProductId}`,
+                            detailPassed,
+                            'status 200, данные товара', `status ${productDetail.status}`,
+                            detailPassed ? `Название: ${productDetail.data.title}` : (productDetail.data.error || 'Ошибка'));
+                        
+                        // Тест 10: Удаление товара
+                        const removeProduct = await apiRequest(`/api/products/${testProductId}/remove`, 'POST');
+                        const removePassed = removeProduct.status === 200;
+                        addTestResult('Удаление товара', 'POST', `/api/products/${testProductId}/remove`,
+                            removePassed,
+                            'status 200', `status ${removeProduct.status}`,
+                            removePassed ? 'Товар удален' : (removeProduct.data.error || 'Ошибка'));
+                    }
+                } catch (e) {
+                    addTestResult('Создание товара', 'POST', '/api/products', false, 'status 201', `Ошибка: ${e.message}`, '');
+                }
+            }
+            
+            // Тест 11: Рейтинг игроков
+            const rating = await apiRequest('/api/players/rating?page=1&per_page=10', 'GET');
+            const ratingPassed = rating.status === 200 && rating.data.players !== undefined;
+            addTestResult('Рейтинг игроков', 'GET', '/api/players/rating',
+                ratingPassed,
+                'status 200, players', `status ${rating.status}`,
+                ratingPassed ? `Игроков: ${rating.data.players.length}` : (rating.data.error || 'Ошибка'));
+            
+            // Тест 12: Ежедневный бонус (если есть токен)
+            if (accessToken) {
+                const bonus = await apiRequest('/api/account/daily-bonus', 'POST');
+                const bonusPassed = bonus.status === 200 || bonus.status === 400;
+                addTestResult('Ежедневный бонус', 'POST', '/api/account/daily-bonus',
+                    bonusPassed,
+                    'status 200/400', `status ${bonus.status}`,
+                    bonus.status === 200 ? `Бонус: ${bonus.data.bonus}` : (bonus.data.error || 'Уже получен сегодня'));
+            }
+            
+            // Тест 13: Статистика профиля
+            if (accessToken) {
+                const stats = await apiRequest('/api/account/stats', 'GET');
+                const statsPassed = stats.status === 200 && stats.data.current_balance !== undefined;
+                addTestResult('Статистика профиля', 'GET', '/api/account/stats',
+                    statsPassed,
+                    'status 200, статистика', `status ${stats.status}`,
+                    statsPassed ? `Баланс: ${stats.data.current_balance}` : (stats.data.error || 'Ошибка'));
+            }
+            
+            // Тест 14: История покупок
+            if (accessToken) {
+                const purchases = await apiRequest('/api/account/purchases', 'GET');
+                const purchasesPassed = purchases.status === 200;
+                addTestResult('История покупок', 'GET', '/api/account/purchases',
+                    purchasesPassed,
+                    'status 200', `status ${purchases.status}`,
+                    purchasesPassed ? 'OK' : (purchases.data.error || 'Ошибка'));
+            }
+            
+            // Тест 15: История продаж
+            if (accessToken) {
+                const sales = await apiRequest('/api/account/sales', 'GET');
+                const salesPassed = sales.status === 200;
+                addTestResult('История продаж', 'GET', '/api/account/sales',
+                    salesPassed,
+                    'status 200', `status ${sales.status}`,
+                    salesPassed ? 'OK' : (sales.data.error || 'Ошибка'));
+            }
+            
+            // Тест 16: Банкротство (проверяем только эндпоинт)
+            if (accessToken) {
+                const bankruptcy = await apiRequest('/api/account/bankruptcy', 'POST');
+                const bankruptcyPassed = bankruptcy.status === 200 || bankruptcy.status === 400;
+                addTestResult('Банкротство', 'POST', '/api/account/bankruptcy',
+                    bankruptcyPassed,
+                    'status 200/400', `status ${bankruptcy.status}`,
+                    bankruptcy.status === 200 ? 'Банкротство объявлено' : (bankruptcy.data.error || 'Условия не выполнены'));
+            }
+            
+            // Финальный отчет
+            const total = parseInt(document.getElementById('totalCount').innerText);
+            const percent = parseInt(document.getElementById('percentValue').innerText);
+            
+            runBtn.disabled = false;
+            runBtn.innerHTML = '🚀 Запустить автотест';
+            
+            // Прокручиваем к результатам
+            document.getElementById('resultsTab').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function showTab(tab) {
+            const resultsTab = document.getElementById('resultsTab');
+            const apiTab = document.getElementById('apiTab');
+            const tabs = document.querySelectorAll('.tab');
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            
+            if (tab === 'results') {
+                resultsTab.style.display = 'block';
+                apiTab.style.display = 'none';
+                tabs[0].classList.add('active');
+            } else {
+                resultsTab.style.display = 'none';
+                apiTab.style.display = 'block';
+                tabs[1].classList.add('active');
+            }
+        }
+        
+        async function sendManualRequest() {
+            const method = document.getElementById('manualMethod').value;
+            let url = document.getElementById('manualUrl').value;
+            const bodyText = document.getElementById('manualBody').value;
+            const useToken = document.getElementById('useToken').checked;
+            
+            if (!url.startsWith('/')) {
+                url = '/' + url;
+            }
+            
+            let body = null;
+            if (bodyText && (method === 'POST' || method === 'PUT')) {
+                try {
+                    body = JSON.parse(bodyText);
+                } catch (e) {
+                    document.getElementById('manualResponse').innerHTML = `<span style="color: red;">Ошибка парсинга JSON: ${e.message}</span>`;
+                    return;
+                }
+            }
+            
+            const response = await apiRequest(url, method, body, useToken);
+            const responseDiv = document.getElementById('manualResponse');
+            responseDiv.innerHTML = `
+                <div><strong>Статус:</strong> ${response.status}</div>
+                <div><strong>Ответ:</strong></div>
+                <pre style="margin-top: 10px; background: white; padding: 10px; border-radius: 5px; overflow-x: auto;">${JSON.stringify(response.data, null, 2)}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>
