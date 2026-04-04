@@ -35,7 +35,6 @@
             margin-bottom: 30px;
         }
 
-        /* Панель подключения */
         .connection-panel {
             background: white;
             padding: 15px 20px;
@@ -357,7 +356,6 @@
         <h1>🎨 ArtMarket</h1>
         <div class="subtitle">Просмотр всех изображений (включая не в продаже)</div>
 
-        <!-- Панель подключения -->
         <div class="connection-panel">
             <div class="connection-field">
                 <label>🌐 IP адрес</label>
@@ -436,8 +434,6 @@
                     const data = await response.json();
                     statusDiv.textContent = `✅ Подключено к ${SERVER_URL} (v${data.version || '?'})`;
                     statusDiv.className = 'connection-status connected';
-                    
-                    // Загружаем товары после успешного подключения
                     await loadMarketProducts();
                 } else {
                     throw new Error(`HTTP ${response.status}`);
@@ -445,7 +441,6 @@
             } catch (error) {
                 statusDiv.textContent = `❌ Ошибка: ${error.message}`;
                 statusDiv.className = 'connection-status error';
-                
                 document.getElementById('market-products').innerHTML = `
                     <div class="empty-state">
                         <h3>❌ Не удалось подключиться</h3>
@@ -485,6 +480,28 @@
             } catch (e) {
                 imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E❌ Ошибка%3C/text%3E%3C/svg%3E';
             }
+        }
+
+        function loadImageWithRetry(imgElement, url, maxRetries = 3) {
+            let attempt = 0;
+            
+            function tryLoad() {
+                attempt++;
+                const tempImg = new Image();
+                tempImg.onload = function() {
+                    imgElement.src = url;
+                };
+                tempImg.onerror = function() {
+                    if (attempt < maxRetries) {
+                        setTimeout(tryLoad, 500 * attempt);
+                    } else {
+                        imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🖼️ Не загружено%3C/text%3E%3C/svg%3E';
+                    }
+                };
+                tempImg.src = url;
+            }
+            
+            tryLoad();
         }
 
         // ========== ВКЛАДКА "В ПРОДАЖЕ" ==========
@@ -533,31 +550,39 @@
         function renderMarketProducts(products) {
             const container = document.getElementById('market-products');
             
-            const html = `
-                <div class="products-grid">
-                    ${products.map(product => {
-                        let imageUrl = product.photo_url;
-                        if (imageUrl && imageUrl.includes('/original/')) {
-                            imageUrl = imageUrl.replace('/original/', '/watermarked/');
-                        }
-                        const fullUrl = SERVER_URL + imageUrl;
-                        
-                        return `
-                            <div class="product-card">
-                                <img class="product-image" src="${fullUrl}" alt="${escapeHtml(product.title)}" 
-                                    onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect width=\\'200\\' height=\\'200\\' fill=\\'%23ecf0f1\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3E🖼️ Не загружено%3C/text%3E%3C/svg%3E'">
-                                <div class="product-info">
-                                    <div class="product-title">${escapeHtml(product.title)}</div>
-                                    <div class="product-creator">👤 ${escapeHtml(product.creator?.nickname || 'Неизвестен')}</div>
-                                    <div class="product-price">${product.price} <span>AC</span></div>
-                                    <div class="product-status on-sale">🟢 В продаже</div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-            container.innerHTML = html;
+            let gridHtml = '<div class="products-grid">';
+            
+            for (const product of products) {
+                let imageUrl = product.photo_url;
+                if (imageUrl && imageUrl.includes('/original/')) {
+                    imageUrl = imageUrl.replace('/original/', '/watermarked/');
+                }
+                const fullUrl = SERVER_URL + imageUrl;
+                
+                gridHtml += `
+                    <div class="product-card">
+                        <img class="product-image" data-src="${fullUrl}" alt="${escapeHtml(product.title)}">
+                        <div class="product-info">
+                            <div class="product-title">${escapeHtml(product.title)}</div>
+                            <div class="product-creator">👤 ${escapeHtml(product.creator?.nickname || 'Неизвестен')}</div>
+                            <div class="product-price">${product.price} <span>AC</span></div>
+                            <div class="product-status on-sale">🟢 В продаже</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            gridHtml += '</div>';
+            container.innerHTML = gridHtml;
+            
+            // Загружаем изображения после рендера с повторными попытками
+            const images = container.querySelectorAll('.product-image');
+            images.forEach(img => {
+                const src = img.getAttribute('data-src');
+                if (src) {
+                    loadImageWithRetry(img, src, 3);
+                }
+            });
         }
 
         function renderMarketPagination() {
@@ -712,7 +737,7 @@
             for (const img of allImages) {
                 if (img.needsAuth && img.token) {
                     const imgElement = document.getElementById(`img-${img.id}-${img.owner}`);
-                    if (imgElement && imgElement.src && imgElement.src.includes('data:image')) {
+                    if (imgElement) {
                         await fetchWithAuth(imgElement, img.photo_url, img.token);
                     }
                 }
@@ -730,17 +755,18 @@
             let gridHtml = '<div class="products-grid">';
             
             for (const img of allImages) {
+                const imageUrl = SERVER_URL + img.photo_url;
                 const initialSrc = img.needsAuth 
                     ? 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E⏳ Загрузка...%3C/text%3E%3C/svg%3E'
-                    : SERVER_URL + img.photo_url;
+                    : imageUrl;
                 
                 gridHtml += `
                     <div class="product-card">
-                        <img id="img-${img.id}-${img.owner}" class="product-image" src="${initialSrc}" alt="${escapeHtml(img.title)}" 
+                        <img id="img-${img.id}-${img.owner}" class="product-image" src="${initialSrc}" alt="${escapeHtml(img.title)}"
                             data-photo-url="${img.photo_url}"
                             data-token="${img.token || ''}"
                             data-needs-auth="${img.needsAuth}"
-                            onerror="if(this.dataset.needsAuth === 'true' && this.dataset.token){fetchWithAuth(this, this.dataset.photoUrl, this.dataset.token);}else{this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect width=\\'200\\' height=\\'200\\' fill=\\'%23ecf0f1\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3E🔒 Ошибка%3C/text%3E%3C/svg%3E'}">
+                            data-full-url="${imageUrl}">
                         <div class="product-info">
                             <div class="product-title">${escapeHtml(img.title)}</div>
                             <div class="product-creator">🎨 Автор: ${escapeHtml(img.creator)}</div>
@@ -768,7 +794,6 @@
                 .replace(/'/g, '&#39;');
         }
 
-        // Автоматическая попытка подключения при загрузке страницы
         setTimeout(() => {
             connectToServer();
         }, 100);
