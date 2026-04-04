@@ -35,6 +35,76 @@
             margin-bottom: 30px;
         }
 
+        /* Панель подключения */
+        .connection-panel {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .connection-field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .connection-field label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #7f8c8d;
+        }
+
+        .connection-field input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            width: 150px;
+        }
+
+        .connection-field input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .connect-btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .connect-btn:hover {
+            background: #219a52;
+        }
+
+        .connection-status {
+            font-size: 13px;
+            padding: 8px 15px;
+            border-radius: 20px;
+            background: #ecf0f1;
+        }
+
+        .connection-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .connection-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
         .tabs {
             display: flex;
             gap: 10px;
@@ -287,6 +357,20 @@
         <h1>🎨 ArtMarket</h1>
         <div class="subtitle">Просмотр всех изображений (включая не в продаже)</div>
 
+        <!-- Панель подключения -->
+        <div class="connection-panel">
+            <div class="connection-field">
+                <label>🌐 IP адрес</label>
+                <input type="text" id="server-ip" value="localhost" placeholder="localhost или 192.168.1.100">
+            </div>
+            <div class="connection-field">
+                <label>🔌 Порт</label>
+                <input type="text" id="server-port" value="5000" placeholder="5000">
+            </div>
+            <button class="connect-btn" onclick="connectToServer()">🔌 Подключиться</button>
+            <div class="connection-status" id="connection-status">⏳ Не подключено</div>
+        </div>
+
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('market')">🛍️ В продаже</button>
             <button class="tab-btn" onclick="switchTab('all')">📸 Все изображения пользователей</button>
@@ -318,14 +402,59 @@
     </div>
 
     <script>
-        // ⚠️ ТОЛЬКО ЭТУ СТРОКУ МЕНЯЙ ПОД СВОЙ СЕРВЕР
-        const API_BASE = 'http://192.168.168.130:5000/api';
-        const SERVER_URL = API_BASE.replace('/api', '');
-        
+        let API_BASE = '';
+        let SERVER_URL = '';
         let marketCurrentPage = 1;
         let marketTotalPages = 1;
         let allImages = [];
         let userTokens = {};
+
+        function getApiBase() {
+            const ip = document.getElementById('server-ip').value.trim();
+            const port = document.getElementById('server-port').value.trim();
+            return `http://${ip}:${port}/api`;
+        }
+
+        function getServerUrl() {
+            const ip = document.getElementById('server-ip').value.trim();
+            const port = document.getElementById('server-port').value.trim();
+            return `http://${ip}:${port}`;
+        }
+
+        async function connectToServer() {
+            const statusDiv = document.getElementById('connection-status');
+            API_BASE = getApiBase();
+            SERVER_URL = getServerUrl();
+            
+            statusDiv.textContent = '⏳ Проверка...';
+            statusDiv.className = 'connection-status';
+            
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.textContent = `✅ Подключено к ${SERVER_URL} (v${data.version || '?'})`;
+                    statusDiv.className = 'connection-status connected';
+                    
+                    // Загружаем товары после успешного подключения
+                    await loadMarketProducts();
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
+                statusDiv.className = 'connection-status error';
+                
+                document.getElementById('market-products').innerHTML = `
+                    <div class="empty-state">
+                        <h3>❌ Не удалось подключиться</h3>
+                        <p>Проверьте IP и порт сервера</p>
+                        <p style="font-size: 12px; margin-top: 10px;">Текущий адрес: ${SERVER_URL}</p>
+                    </div>
+                `;
+            }
+        }
 
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -340,28 +469,31 @@
             }
         }
 
-        // Загрузка изображения с токеном в заголовке
-        async function loadImageWithAuth(url, token) {
+        async function fetchWithAuth(imgElement, photoUrl, token) {
             try {
-                const response = await fetch(SERVER_URL + url, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                const response = await fetch(SERVER_URL + photoUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 
                 if (response.ok) {
                     const blob = await response.blob();
-                    return URL.createObjectURL(blob);
+                    const blobUrl = URL.createObjectURL(blob);
+                    imgElement.src = blobUrl;
+                } else {
+                    imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🔒 Нет доступа%3C/text%3E%3C/svg%3E';
                 }
-                return null;
             } catch (e) {
-                console.error('Ошибка загрузки:', e);
-                return null;
+                imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E❌ Ошибка%3C/text%3E%3C/svg%3E';
             }
         }
 
         // ========== ВКЛАДКА "В ПРОДАЖЕ" ==========
         async function loadMarketProducts(page = 1) {
+            if (!API_BASE) {
+                document.getElementById('market-products').innerHTML = `<div class="empty-state"><h3>🔌 Сначала подключитесь к серверу</h3></div>`;
+                return;
+            }
+
             const statusDiv = document.getElementById('market-status');
             const container = document.getElementById('market-products');
             
@@ -391,6 +523,7 @@
                 statusDiv.className = 'status success';
                 
             } catch (error) {
+                console.error('Ошибка загрузки товаров:', error);
                 container.innerHTML = `<div class="empty-state"><h3>❌ Ошибка</h3><p>${error.message}</p></div>`;
                 statusDiv.textContent = `❌ Ошибка`;
                 statusDiv.className = 'status error';
@@ -403,7 +536,6 @@
             const html = `
                 <div class="products-grid">
                     ${products.map(product => {
-                        // Для вкладки "В продаже" используем водяной знак (без токена)
                         let imageUrl = product.photo_url;
                         if (imageUrl && imageUrl.includes('/original/')) {
                             imageUrl = imageUrl.replace('/original/', '/watermarked/');
@@ -468,6 +600,7 @@
                 userTokens[username] = data.tokens?.access_token || null;
                 return userTokens[username];
             } catch (e) {
+                console.error(`Ошибка входа для ${username}:`, e);
                 return null;
             }
         }
@@ -482,11 +615,17 @@
                 
                 return await response.json();
             } catch (e) {
+                console.error('Ошибка получения профиля:', e);
                 return null;
             }
         }
 
         async function loadAllUserImages() {
+            if (!API_BASE) {
+                document.getElementById('all-products').innerHTML = `<div class="empty-state"><h3>🔌 Сначала подключитесь к серверу</h3></div>`;
+                return;
+            }
+
             const statusDiv = document.getElementById('all-status');
             const container = document.getElementById('all-products');
             const progressBar = document.getElementById('progress-bar');
@@ -497,6 +636,7 @@
             progressBar.style.display = 'block';
             
             allImages = [];
+            userTokens = {};
             let processed = 0;
             const totalUsers = 20;
             
@@ -512,7 +652,7 @@
                     const profile = await getUserProfile(token);
                     
                     if (profile) {
-                        // Товары на продаже (используем водяной знак, без токена)
+                        // Товары на продаже
                         if (profile.products_for_sale && profile.products_for_sale.length > 0) {
                             for (const product of profile.products_for_sale) {
                                 let imageUrl = product.photo_url;
@@ -534,7 +674,7 @@
                             }
                         }
                         
-                        // Купленные товары (нужен токен для оригинала)
+                        // Купленные товары
                         if (profile.purchased_products && profile.purchased_products.length > 0) {
                             for (const product of profile.purchased_products) {
                                 allImages.push({
@@ -569,15 +709,11 @@
             renderAllImages();
             
             // Загружаем изображения с авторизацией
-            for (let i = 0; i < allImages.length; i++) {
-                const img = allImages[i];
+            for (const img of allImages) {
                 if (img.needsAuth && img.token) {
                     const imgElement = document.getElementById(`img-${img.id}-${img.owner}`);
-                    if (imgElement) {
-                        const blobUrl = await loadImageWithAuth(img.photo_url, img.token);
-                        if (blobUrl) {
-                            imgElement.src = blobUrl;
-                        }
+                    if (imgElement && imgElement.src && imgElement.src.includes('data:image')) {
+                        await fetchWithAuth(imgElement, img.photo_url, img.token);
                     }
                 }
             }
@@ -591,66 +727,35 @@
                 return;
             }
             
-            const html = `
-                <div class="stats">
-                    📊 Всего собрано: <strong>${allImages.length}</strong> изображений
-                </div>
-                <div class="products-grid">
-                    ${allImages.map(img => {
-                        // Для изображений без авторизации сразу подставляем полный URL
-                        const initialSrc = img.needsAuth 
-                            ? 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E⏳ Загрузка...%3C/text%3E%3C/svg%3E'
-                            : SERVER_URL + img.photo_url;
-                        
-                        return `
-                            <div class="product-card">
-                                <img id="img-${img.id}-${img.owner}" class="product-image" src="${initialSrc}" alt="${escapeHtml(img.title)}" 
-                                    onerror="if(!this.dataset.retried){this.dataset.retried='true'; fetchWithAuth(this, '${img.photo_url}', '${img.token}');}else{this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect width=\\'200\\' height=\\'200\\' fill=\\'%23ecf0f1\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3E🔒 Ошибка%3C/text%3E%3C/svg%3E'}">
-                                <div class="product-info">
-                                    <div class="product-title">${escapeHtml(img.title)}</div>
-                                    <div class="product-creator">🎨 Автор: ${escapeHtml(img.creator)}</div>
-                                    <div class="product-owner">👑 Владелец: ${escapeHtml(img.owner)}</div>
-                                    <div class="product-price">${img.price} <span>AC</span></div>
-                                    <div class="product-status ${img.status === 'В продаже' ? 'on-sale' : 'not-on-sale'}">
-                                        ${img.status === 'В продаже' ? '🟢 В продаже' : '🔵 В коллекции'}
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-            container.innerHTML = html;
+            let gridHtml = '<div class="products-grid">';
             
-            // Загружаем изображения с авторизацией
             for (const img of allImages) {
-                if (img.needsAuth && img.token) {
-                    const imgElement = document.getElementById(`img-${img.id}-${img.owner}`);
-                    if (imgElement && imgElement.src.includes('data:image')) {
-                        fetchWithAuth(imgElement, img.photo_url, img.token);
-                    }
-                }
-            }
-        }
-
-        async function fetchWithAuth(imgElement, photoUrl, token) {
-            try {
-                const response = await fetch(SERVER_URL + photoUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                const initialSrc = img.needsAuth 
+                    ? 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E⏳ Загрузка...%3C/text%3E%3C/svg%3E'
+                    : SERVER_URL + img.photo_url;
                 
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const blobUrl = URL.createObjectURL(blob);
-                    imgElement.src = blobUrl;
-                } else {
-                    imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🔒 Нет доступа%3C/text%3E%3C/svg%3E';
-                }
-            } catch (e) {
-                imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E❌ Ошибка%3C/text%3E%3C/svg%3E';
+                gridHtml += `
+                    <div class="product-card">
+                        <img id="img-${img.id}-${img.owner}" class="product-image" src="${initialSrc}" alt="${escapeHtml(img.title)}" 
+                            data-photo-url="${img.photo_url}"
+                            data-token="${img.token || ''}"
+                            data-needs-auth="${img.needsAuth}"
+                            onerror="if(this.dataset.needsAuth === 'true' && this.dataset.token){fetchWithAuth(this, this.dataset.photoUrl, this.dataset.token);}else{this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\' viewBox=\\'0 0 200 200\\'%3E%3Crect width=\\'200\\' height=\\'200\\' fill=\\'%23ecf0f1\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3E🔒 Ошибка%3C/text%3E%3C/svg%3E'}">
+                        <div class="product-info">
+                            <div class="product-title">${escapeHtml(img.title)}</div>
+                            <div class="product-creator">🎨 Автор: ${escapeHtml(img.creator)}</div>
+                            <div class="product-owner">👑 Владелец: ${escapeHtml(img.owner)}</div>
+                            <div class="product-price">${img.price} <span>AC</span></div>
+                            <div class="product-status ${img.status === 'В продаже' ? 'on-sale' : 'not-on-sale'}">
+                                ${img.status === 'В продаже' ? '🟢 В продаже' : '🔵 В коллекции'}
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
+            
+            gridHtml += '</div>';
+            container.innerHTML = gridHtml;
         }
 
         function escapeHtml(str) {
@@ -663,8 +768,10 @@
                 .replace(/'/g, '&#39;');
         }
 
-        // Инициализация
-        loadMarketProducts();
+        // Автоматическая попытка подключения при загрузке страницы
+        setTimeout(() => {
+            connectToServer();
+        }, 100);
     </script>
 </body>
 </html>
