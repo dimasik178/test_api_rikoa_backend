@@ -392,7 +392,7 @@
                 <div class="terminal-dot red"></div>
                 <div class="terminal-dot yellow"></div>
                 <div class="terminal-dot green"></div>
-                <div class="terminal-title">ArtMarket API Tester v6.0</div>
+                <div class="terminal-title">ArtMarket API Tester v6.0 - Полный список роутов</div>
             </div>
             <div class="terminal-body">
                 <div class="config-panel">
@@ -491,8 +491,21 @@
         let currentRoute = null;
         let selectedImageFile = null;
 
+        // ПОЛНЫЙ СПИСОК РОУТОВ (включая изображения)
         const routes = [
             { name: "🏥 Health Check", method: "GET", path: "/api/health", auth: false, params: [] },
+            { name: "📝 Регистрация", method: "POST", path: "/api/auth/register", auth: false, params: [
+                { name: "login", type: "text", required: true, default: "test_1" },
+                { name: "mail", type: "email", required: true, default: "test_1@mail.ru" },
+                { name: "password", type: "password", required: true, default: "123456" }
+            ]},
+            { name: "🔑 Вход", method: "POST", path: "/api/auth/login", auth: false, params: [
+                { name: "login", type: "text", required: true, default: "test_1" },
+                { name: "password", type: "password", required: true, default: "123456" }
+            ]},
+            { name: "🔄 Обновить токен", method: "POST", path: "/api/auth/refresh", auth: false, params: [
+                { name: "refresh_token", type: "text", required: true, default: "" }
+            ]},
             { name: "👤 Профиль", method: "GET", path: "/api/auth/profile", auth: true, params: [] },
             { name: "📦 Список товаров", method: "GET", path: "/api/products", auth: false, params: [
                 { name: "page", type: "number", required: false, default: "1" }
@@ -531,6 +544,13 @@
             { name: "🏆 Рейтинг игроков", method: "GET", path: "/api/players/rating", auth: false, params: [
                 { name: "page", type: "number", required: false, default: "1" },
                 { name: "per_page", type: "number", required: false, default: "20" }
+            ]},
+            // ========== ИЗОБРАЖЕНИЯ ==========
+            { name: "🖼️ Оригинал фото", method: "GET", path: "/api/images/original/{file_id}", auth: true, params: [
+                { name: "file_id", type: "text", required: true, placeholder: "UUID файла (например: cb3f42d0-2916-4829-a2fe-3e2ce440d2e8)" }
+            ]},
+            { name: "🌊 Водяной знак", method: "GET", path: "/api/images/watermarked/{file_id}", auth: false, params: [
+                { name: "file_id", type: "text", required: true, placeholder: "UUID файла" }
             ]}
         ];
 
@@ -650,7 +670,7 @@
             let bodyHtml = '';
             if (response.data) {
                 if (response.data.isImage) {
-                    bodyHtml = `<img src="${response.data.url}" alt="Image">`;
+                    bodyHtml = `<img src="${response.data.url}" alt="Image" style="max-width: 100%;">`;
                 } else if (typeof response.data === 'object') {
                     bodyHtml = `<pre style="margin-top: 10px;">${JSON.stringify(response.data, null, 2)}</pre>`;
                 } else {
@@ -695,7 +715,6 @@
                 currentBalance = response.data.user.balance;
                 updateAuthDisplay();
                 
-                // Получаем профиль для обновления баланса
                 const profileResponse = await apiCall('/api/auth/profile', 'GET', null, true);
                 if (profileResponse.ok && profileResponse.data) {
                     currentBalance = profileResponse.data.balance;
@@ -988,7 +1007,7 @@
                     document.getElementById('warningMsg').style.display = 'none';
                 }
             } catch (e) {
-                document.getElementById('warningMsg').innerHTML = '⚠️ ОШИБКА CORS! Запустите сервер с CORS или используйте расширение браузера. Подробнее: https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf';
+                document.getElementById('warningMsg').innerHTML = '⚠️ ОШИБКА CORS! Запустите сервер с CORS или используйте расширение браузера.';
             }
         }
 
