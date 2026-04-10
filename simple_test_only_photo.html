@@ -464,44 +464,27 @@
             }
         }
 
-        async function fetchWithAuth(imgElement, photoUrl, token) {
+        async function loadImageWithAuth(photoUrl, token) {
             try {
-                const response = await fetch(SERVER_URL + photoUrl, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                const url = SERVER_URL + photoUrl;
+                const response = await fetch(url, {
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
                 });
                 
                 if (response.ok) {
                     const blob = await response.blob();
-                    const blobUrl = URL.createObjectURL(blob);
-                    imgElement.src = blobUrl;
+                    return URL.createObjectURL(blob);
                 } else {
-                    imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🔒 Нет доступа%3C/text%3E%3C/svg%3E';
+                    return null;
                 }
             } catch (e) {
-                imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E❌ Ошибка%3C/text%3E%3C/svg%3E';
+                console.error('Ошибка загрузки:', e);
+                return null;
             }
-        }
-
-        function loadImageWithRetry(imgElement, url, maxRetries = 3) {
-            let attempt = 0;
-            
-            function tryLoad() {
-                attempt++;
-                const tempImg = new Image();
-                tempImg.onload = function() {
-                    imgElement.src = url;
-                };
-                tempImg.onerror = function() {
-                    if (attempt < maxRetries) {
-                        setTimeout(tryLoad, 500 * attempt);
-                    } else {
-                        imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🖼️ Не загружено%3C/text%3E%3C/svg%3E';
-                    }
-                };
-                tempImg.src = url;
-            }
-            
-            tryLoad();
         }
 
         // ========== ВКЛАДКА "В ПРОДАЖЕ" ==========
@@ -532,7 +515,7 @@
                 if (products.length === 0) {
                     container.innerHTML = `<div class="empty-state"><h3>📭 Товаров в продаже нет</h3></div>`;
                 } else {
-                    renderMarketProducts(products);
+                    await renderMarketProducts(products);
                 }
                 
                 renderMarketPagination();
@@ -547,7 +530,7 @@
             }
         }
 
-        function renderMarketProducts(products) {
+        async function renderMarketProducts(products) {
             const container = document.getElementById('market-products');
             
             let gridHtml = '<div class="products-grid">';
@@ -561,7 +544,7 @@
                 
                 gridHtml += `
                     <div class="product-card">
-                        <img class="product-image" data-src="${fullUrl}" alt="${escapeHtml(product.title)}">
+                        <img class="product-image" data-src="${fullUrl}" alt="${escapeHtml(product.title)}" style="min-height: 200px;">
                         <div class="product-info">
                             <div class="product-title">${escapeHtml(product.title)}</div>
                             <div class="product-creator">👤 ${escapeHtml(product.creator?.nickname || 'Неизвестен')}</div>
@@ -575,14 +558,19 @@
             gridHtml += '</div>';
             container.innerHTML = gridHtml;
             
-            // Загружаем изображения после рендера с повторными попытками
+            // Загружаем изображения
             const images = container.querySelectorAll('.product-image');
-            images.forEach(img => {
+            for (const img of images) {
                 const src = img.getAttribute('data-src');
                 if (src) {
-                    loadImageWithRetry(img, src, 3);
+                    const testImg = new Image();
+                    testImg.onload = () => { img.src = src; };
+                    testImg.onerror = () => { 
+                        img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🖼️ Не загружено%3C/text%3E%3C/svg%3E';
+                    };
+                    testImg.src = src;
                 }
-            });
+            }
         }
 
         function renderMarketPagination() {
@@ -719,7 +707,7 @@
                 }
                 
                 processed++;
-                await new Promise(r => setTimeout(r, 50));
+                await new Promise(r => setTimeout(r, 100));
             }
             
             progressFill.style.width = '100%';
@@ -731,20 +719,10 @@
                 progressFill.style.width = '0%';
             }, 1000);
             
-            renderAllImages();
-            
-            // Загружаем изображения с авторизацией
-            for (const img of allImages) {
-                if (img.needsAuth && img.token) {
-                    const imgElement = document.getElementById(`img-${img.id}-${img.owner}`);
-                    if (imgElement) {
-                        await fetchWithAuth(imgElement, img.photo_url, img.token);
-                    }
-                }
-            }
+            await renderAllImages();
         }
 
-        function renderAllImages() {
+        async function renderAllImages() {
             const container = document.getElementById('all-products');
             
             if (allImages.length === 0) {
@@ -755,18 +733,9 @@
             let gridHtml = '<div class="products-grid">';
             
             for (const img of allImages) {
-                const imageUrl = SERVER_URL + img.photo_url;
-                const initialSrc = img.needsAuth 
-                    ? 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E⏳ Загрузка...%3C/text%3E%3C/svg%3E'
-                    : imageUrl;
-                
                 gridHtml += `
                     <div class="product-card">
-                        <img id="img-${img.id}-${img.owner}" class="product-image" src="${initialSrc}" alt="${escapeHtml(img.title)}"
-                            data-photo-url="${img.photo_url}"
-                            data-token="${img.token || ''}"
-                            data-needs-auth="${img.needsAuth}"
-                            data-full-url="${imageUrl}">
+                        <img id="img-${img.id}-${img.owner}" class="product-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ecf0f1'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999'%3E⏳ Загрузка...%3C/text%3E%3C/svg%3E" alt="${escapeHtml(img.title)}">
                         <div class="product-info">
                             <div class="product-title">${escapeHtml(img.title)}</div>
                             <div class="product-creator">🎨 Автор: ${escapeHtml(img.creator)}</div>
@@ -782,6 +751,66 @@
             
             gridHtml += '</div>';
             container.innerHTML = gridHtml;
+            
+            // Загружаем изображения последовательно
+            for (const img of allImages) {
+                const imgElement = document.getElementById(`img-${img.id}-${img.owner}`);
+                if (!imgElement) continue;
+                
+                if (!img.needsAuth) {
+                    // Обычное изображение (водяной знак)
+                    const url = SERVER_URL + img.photo_url;
+                    const testImg = new Image();
+                    testImg.onload = () => { imgElement.src = url; };
+                    testImg.onerror = () => {
+                        imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🖼️ Не загружено%3C/text%3E%3C/svg%3E';
+                    };
+                    testImg.src = url;
+                } else {
+                    // Изображение с авторизацией — добавляем timestamp чтобы обойти кэш
+                    const url = SERVER_URL + img.photo_url + '?_=' + Date.now();
+                    try {
+                        const response = await fetch(url, {
+                            headers: { 
+                                'Authorization': `Bearer ${img.token}`,
+                                // 'Cache-Control': 'no-cache, no-store, must-revalidate',
+                                // 'Pragma': 'no-cache'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const blobUrl = URL.createObjectURL(blob);
+                            imgElement.src = blobUrl;
+                        } else if (response.status === 304) {
+                            // При 304 пробуем ещё раз с другим параметром
+                            const url2 = SERVER_URL + img.photo_url + '?_=' + Date.now() + Math.random();
+                            const response2 = await fetch(url2, {
+                                headers: { 
+                                    'Authorization': `Bearer ${img.token}`,
+                                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                                    'Pragma': 'no-cache'
+                                }
+                            });
+                            if (response2.ok) {
+                                const blob = await response2.blob();
+                                const blobUrl = URL.createObjectURL(blob);
+                                imgElement.src = blobUrl;
+                            } else {
+                                imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🔒 Нет доступа%3C/text%3E%3C/svg%3E';
+                            }
+                        } else {
+                            imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E🔒 Нет доступа%3C/text%3E%3C/svg%3E';
+                        }
+                    } catch (e) {
+                        console.error('Ошибка:', e);
+                        imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"%3E%3Crect width="200" height="200" fill="%23ecf0f1"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3E❌ Ошибка%3C/text%3E%3C/svg%3E';
+                    }
+                }
+                
+                // Небольшая задержка между загрузками
+                await new Promise(r => setTimeout(r, 100));
+            }
         }
 
         function escapeHtml(str) {
